@@ -5,6 +5,7 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,6 +27,7 @@ import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.filefilter.DirectoryFileFilter;
 import org.apache.commons.io.filefilter.SuffixFileFilter;
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.commonjava.maven.atlas.ident.ref.ProjectVersionRef;
 import org.commonjava.maven.atlas.ident.ref.SimpleProjectVersionRef;
 import org.commonjava.maven.ext.common.ManipulationException;
@@ -182,6 +184,8 @@ public class AlignmentTask extends DefaultTask {
                 Set<ProjectVersionRef> allDeps = cache.getDependencies().values().stream()
                         .flatMap(m -> m.values().stream()).collect(Collectors.toSet());
 
+                // Copy these
+
                 final AlignmentService alignmentService = AlignmentServiceFactory
                         .getAlignmentService(configuration, cache.getDependencies().keySet());
 
@@ -216,15 +220,15 @@ public class AlignmentTask extends DefaultTask {
                 projectDependencies.forEach((key, value) -> {
                     final ManipulationModel correspondingModule = alignmentModel.findCorrespondingChild(key);
                     if (configuration.versionModificationEnabled()) {
-                        logger.info("Updating sub-project {} (path: {}) version to {} ", correspondingModule,
-                                correspondingModule.getProjectPathName(), newVersion);
+                        logger.info("Updating sub-project {} (path: {}) from version {} to {} ", correspondingModule,
+                                correspondingModule.getProjectPathName(), value, newVersion);
                         correspondingModule.setVersion(newVersion);
                     }
                     updateModuleDynamicDependencies(correspondingModule, value);
                     updateModuleDependencies(correspondingModule, value, alignmentResponse);
                 });
 
-                logger.info("Completed processing for alignment and writing {} ", cache.toString());
+                logger.info("Completed processing for alignment and writing {} ", cache);
 
                 // artifactId / rootProject.getName
                 final String artifactId = SettingsFileIO.writeProjectNameIfNeeded(getProject().getRootDir());
@@ -268,10 +272,13 @@ public class AlignmentTask extends DefaultTask {
 
                 logger.info("For project script is {}  and build file {} ", project.getBuildscript(), project.getBuildFile());
                 logger.info("For project {} ", project.getBuildscript().getSourceFile());
+
                 writeGmeMarkerFile(project.getRootProject().getBuildFile());
                 writeGmeConfigMarkerFile(project.getRootProject().getBuildFile());
                 writeGmeReposMarkerFile();
                 writeRepositorySettingsFile(cache.getRepositories());
+
+                writeAlignmentReport(allDeps, alignmentModel.getAllAlignedDependencies());
             } else {
                 logger.debug("Still have {} projects to scan", cache.getProjectCounterRemaining());
             }
@@ -385,6 +392,7 @@ public class AlignmentTask extends DefaultTask {
         project.getConfigurations().all(configuration -> {
             if (configuration.isCanBeResolved()) {
 
+                // here
                 logger.debug("Examining configuration {}", configuration.getName());
 
                 // using getAllDependencies here instead of getDependencies because the later
@@ -440,7 +448,6 @@ public class AlignmentTask extends DefaultTask {
                                 configuration.getName(),
                                 unresolvedDependencies);
                     } else {
-
                         logger.error("For configuration {}; unable to resolve all dependencies: {}",
                                 configuration.getName(),
                                 lenient.getUnresolvedModuleDependencies());
@@ -634,4 +641,23 @@ public class AlignmentTask extends DefaultTask {
         return allDependencies;
     }
 
+    private void writeAlignmentReport(Set<ProjectVersionRef> allDeps, Map<String, ProjectVersionRef> allAlignedDependencies)
+            throws IOException {
+        File file = new File("aignment-report-" + RandomStringUtils.randomNumeric(3));
+        StringBuilder sb = new StringBuilder();
+
+        for (ProjectVersionRef ref : allDeps) {
+            sb.write("allDeps: ");
+            sb.writeln(ref);
+        }
+
+        for (Map.Entry<String, ProjectVersionRef> entry : allAlignedDependencies.entrySet()) {
+            sb.write("allAlignedDependencies ");
+            sb.write(entry.getKey());
+            sb.write(":");
+            sb.writeln(entry.getValue());
+        }
+
+        FileUtils.writeStringToFile(file, sb.toString(), StandardCharsets.UTF_8);
+    }
 }
